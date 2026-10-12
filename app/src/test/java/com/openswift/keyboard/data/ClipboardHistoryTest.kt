@@ -1,0 +1,61 @@
+package com.openswift.keyboard.data
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35])
+class ClipboardHistoryTest {
+
+    @Test
+    fun captureRequiresOptInAndNonPrivateNonSensitiveText() {
+        assertFalse(ClipboardHistory.shouldCapture(false, false, false, "copy"))
+        assertFalse(ClipboardHistory.shouldCapture(true, true, false, "copy"))
+        assertFalse(ClipboardHistory.shouldCapture(true, false, true, "copy"))
+        assertFalse(ClipboardHistory.shouldCapture(true, false, false, "  "))
+        assertTrue(ClipboardHistory.shouldCapture(true, false, false, "copy"))
+    }
+
+    @Test
+    fun emptyAndAlreadyFirstValuesAreUnchanged() {
+        val current = listOf("newest", "older")
+
+        assertSame(current, ClipboardHistory.withCapturedItem(current, ""))
+        assertSame(current, ClipboardHistory.withCapturedItem(current, "newest"))
+    }
+
+    @Test
+    fun olderCopiedItemIsPromotedToTop() {
+        val current = listOf("newest", "older", "ancient")
+
+        val updated = ClipboardHistory.withCapturedItem(current, "older")
+        assertEquals(listOf("older", "newest", "ancient"), updated)
+    }
+
+    @Test
+    fun newItemsAreNewestFirstAndRetentionIsBounded() {
+        val current = (1..ClipboardHistory.MAX_ITEMS).map { "item-$it" }
+
+        val updated = ClipboardHistory.withCapturedItem(current, "latest")
+
+        assertEquals(ClipboardHistory.MAX_ITEMS, updated.size)
+        assertEquals("latest", updated.first())
+        assertEquals("item-${ClipboardHistory.MAX_ITEMS - 1}", updated.last())
+    }
+
+    @Test
+    fun initialInstallClipboardIsEmpty() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        val prefs = context.getSharedPreferences("test_clipboard_history", android.content.Context.MODE_PRIVATE)
+        prefs.edit().clear().commit()
+        val history = ClipboardHistory(prefs)
+        assertTrue("Clipboard recent items should be empty", history.items().isEmpty())
+        assertTrue("Clipboard pinned items should be empty", history.pinnedItems().isEmpty())
+    }
+}

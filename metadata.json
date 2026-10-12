@@ -1,0 +1,8 @@
+{
+  "name": "OpenSwift",
+  "description": "OpenSwift - A secure, private, and ultra-fast multilingual keyboard with battery-optimized performance, offline typing, and zero cloud tracking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
