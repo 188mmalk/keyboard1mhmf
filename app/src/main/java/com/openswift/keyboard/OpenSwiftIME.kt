@@ -259,7 +259,12 @@ class OpenSwiftIME : InputMethodService() {
             val view = TextEditingView(this)
             view.onOpenHub = { showToolsHubView() }
             view.onOpenEmoji = { showEmojiView() }
+            view.onOpenVoice = {
+                showKeyboardView()
+                toggleVoiceTyping()
+            }
             view.onOpenClipboard = { showClipboardView() }
+            view.onHide = { requestHideSelf(0) }
             view.onClose = { showKeyboardView() }
             view.onAction = { action -> handleTextEditingAction(action) }
             if (::keyboardView.isInitialized) {
@@ -796,8 +801,7 @@ class OpenSwiftIME : InputMethodService() {
                 ic.commitText(" ", 1)
             }
             TextEditingView.Action.HOME -> {
-                ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MOVE_HOME))
-                ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MOVE_HOME))
+                showKeyboardView()
             }
             TextEditingView.Action.END -> {
                 ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MOVE_END))

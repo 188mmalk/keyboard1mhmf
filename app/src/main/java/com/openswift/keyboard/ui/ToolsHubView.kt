@@ -136,8 +136,21 @@ class ToolsHubView @JvmOverloads constructor(
     private val pencilIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_edit_pencil)?.mutate()?.apply { setTint(colorToolbarIcon) }
 
     // Hit test bounds
+    private val toolbarBarRect = RectF()
     private val toolbarBounds = mutableMapOf<String, RectF>()
     private val toolBounds = mutableMapOf<ToolId, RectF>()
+
+    private val toolbarBarBgPaint = Paint().apply {
+        color = 0xFF0D1117.toInt()
+        style = Paint.Style.FILL
+    }
+    private val toolbarBarBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF00E5FF.toInt() // Neon cyan border matching keyboard shortcuts bar
+        style = Paint.Style.STROKE
+    }
+    private val toolbarDividerPaint = Paint().apply {
+        color = 0x3300E5FF.toInt()
+    }
 
     // Dimensions
     private val toolbarHeight = 44f * density
@@ -177,6 +190,19 @@ class ToolsHubView @JvmOverloads constructor(
 
     private fun drawToolbar(canvas: Canvas, w: Float) {
         toolbarBounds.clear()
+        val barMarginH = 4f * density
+        val barTop = 2f * density
+        val barBottom = toolbarHeight - (2f * density)
+        val barRadius = 12f * density
+        toolbarBarRect.set(barMarginH, barTop, w - barMarginH, barBottom)
+
+        // Fill toolbar background (dark midnight)
+        canvas.drawRoundRect(toolbarBarRect, barRadius, barRadius, toolbarBarBgPaint)
+
+        // Neon cyan border outline
+        toolbarBarBorderPaint.strokeWidth = 2.2f * density
+        canvas.drawRoundRect(toolbarBarRect, barRadius, barRadius, toolbarBarBorderPaint)
+
         val icons = listOf(
             "hub" to hubIcon,
             "emoji" to emojiIcon,
@@ -186,20 +212,33 @@ class ToolsHubView @JvmOverloads constructor(
             "hide" to hideIcon
         )
         val numIcons = icons.size
-        val slotWidth = w / numIcons.toFloat()
-        val iconSize = (22f * density).toInt()
+        val slotWidth = toolbarBarRect.width() / numIcons.toFloat()
+
+        // Divider lines between slots
+        toolbarDividerPaint.strokeWidth = 1.5f * density
+        val dividerHalfH = 10.5f * density
+        val dividerCenterY = toolbarBarRect.centerY()
+        for (i in 1 until numIcons) {
+            val divX = toolbarBarRect.left + (i * slotWidth)
+            canvas.drawLine(divX, dividerCenterY - dividerHalfH, divX, dividerCenterY + dividerHalfH, toolbarDividerPaint)
+        }
 
         icons.forEachIndexed { i, (id, drawable) ->
-            val centerX = (i * slotWidth) + (slotWidth / 2f)
-            val centerY = toolbarHeight / 2f
+            val centerX = toolbarBarRect.left + (i * slotWidth) + (slotWidth / 2f)
+            val centerY = toolbarBarRect.centerY()
 
-            val slotRect = RectF(i * slotWidth, 0f, (i + 1) * slotWidth, toolbarHeight)
+            val slotRect = RectF(
+                toolbarBarRect.left + (i * slotWidth),
+                barTop,
+                toolbarBarRect.left + ((i + 1) * slotWidth),
+                barBottom
+            )
             toolbarBounds[id] = slotRect
 
             // Monogram icon (index 0) is actively highlighted
             if (id == "hub") {
-                val boxWidth = slotWidth * 0.72f
-                val boxHeight = toolbarHeight * 0.74f
+                val boxWidth = slotWidth * 0.76f
+                val boxHeight = (barBottom - barTop) * 0.76f
                 val highlightRect = RectF(
                     centerX - boxWidth / 2f,
                     centerY - boxHeight / 2f,
@@ -210,7 +249,10 @@ class ToolsHubView @JvmOverloads constructor(
             }
 
             if (drawable != null) {
-                val size = if (id == "cursor" || id == "hide") (27f * density).toInt() else iconSize
+                val size = when (id) {
+                    "cursor", "hide" -> (25f * density).toInt()
+                    else -> (22f * density).toInt()
+                }
                 val left = (centerX - size / 2f).toInt()
                 val top = (centerY - size / 2f).toInt()
                 drawable.setBounds(left, top, left + size, top + size)
@@ -337,6 +379,7 @@ class ToolsHubView @JvmOverloads constructor(
             for ((id, rect) in toolbarBounds) {
                 if (rect.contains(event.x, event.y)) {
                     when (id) {
+                        "hub" -> onClose?.invoke() // Re-tapping hub returns to keyboard
                         "emoji" -> onOpenEmoji?.invoke()
                         "voice" -> onOpenVoice?.invoke()
                         "cursor" -> onOpenTextEditing?.invoke()

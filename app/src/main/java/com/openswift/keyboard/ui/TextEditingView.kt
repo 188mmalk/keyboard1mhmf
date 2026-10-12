@@ -44,7 +44,9 @@ class TextEditingView @JvmOverloads constructor(
 
     var onOpenHub: (() -> Unit)? = null
     var onOpenEmoji: (() -> Unit)? = null
+    var onOpenVoice: (() -> Unit)? = null
     var onOpenClipboard: (() -> Unit)? = null
+    var onHide: (() -> Unit)? = null
     var onClose: (() -> Unit)? = null
     var onAction: ((Action) -> Unit)? = null
 
@@ -115,12 +117,26 @@ class TextEditingView @JvmOverloads constructor(
         color = 0xFF1E3F42.toInt() // Dark teal highlight for active toolbar icon
         style = Paint.Style.FILL
     }
+    private val toolbarBarBgPaint = Paint().apply {
+        color = 0xFF0D1117.toInt()
+        style = Paint.Style.FILL
+    }
+    private val toolbarBarBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF00E5FF.toInt() // Neon cyan border matching keyboard shortcuts bar
+        style = Paint.Style.STROKE
+    }
+    private val toolbarDividerPaint = Paint().apply {
+        color = 0x3300E5FF.toInt()
+    }
 
     // Top toolbar Drawables
     private val hubIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_hub_monogram)?.mutate()?.apply {
         setTint(colorToolbarIcon)
     }
     private val emojiIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_sentiment_satisfied)?.mutate()?.apply {
+        setTint(colorToolbarIcon)
+    }
+    private val micIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_mic)?.mutate()?.apply {
         setTint(colorToolbarIcon)
     }
     private val cursorIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_text_cursor)?.mutate()?.apply {
@@ -139,6 +155,7 @@ class TextEditingView @JvmOverloads constructor(
     private val undoIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_undo)?.mutate()
 
     // Hit test regions
+    private val toolbarBarRect = RectF()
     private val toolbarBounds = mutableMapOf<String, RectF>()
     private val keyBounds = mutableMapOf<Action, RectF>()
 
@@ -174,29 +191,55 @@ class TextEditingView @JvmOverloads constructor(
 
     private fun drawToolbar(canvas: Canvas, w: Float) {
         toolbarBounds.clear()
-        val numIcons = 5
-        val slotWidth = w / numIcons.toFloat()
-        val iconSize = (22f * density).toInt()
+        val barMarginH = 4f * density
+        val barTop = 2f * density
+        val barBottom = toolbarHeight - (2f * density)
+        val barRadius = 12f * density
+        toolbarBarRect.set(barMarginH, barTop, w - barMarginH, barBottom)
+
+        // Fill toolbar background (dark midnight)
+        canvas.drawRoundRect(toolbarBarRect, barRadius, barRadius, toolbarBarBgPaint)
+
+        // Neon cyan border outline
+        toolbarBarBorderPaint.strokeWidth = 2.2f * density
+        canvas.drawRoundRect(toolbarBarRect, barRadius, barRadius, toolbarBarBorderPaint)
 
         val icons = listOf(
             "hub" to hubIcon,
             "emoji" to emojiIcon,
+            "voice" to micIcon,
             "cursor" to cursorIcon,
             "clipboard" to clipboardIcon,
             "hide" to hideIcon
         )
+        val iconCount = icons.size
+        val slotWidth = toolbarBarRect.width() / iconCount.toFloat()
+
+        // Divider lines between slots
+        toolbarDividerPaint.strokeWidth = 1.5f * density
+        val dividerHalfH = 10.5f * density
+        val dividerCenterY = toolbarBarRect.centerY()
+        for (i in 1 until iconCount) {
+            val divX = toolbarBarRect.left + (i * slotWidth)
+            canvas.drawLine(divX, dividerCenterY - dividerHalfH, divX, dividerCenterY + dividerHalfH, toolbarDividerPaint)
+        }
 
         icons.forEachIndexed { i, (id, drawable) ->
-            val centerX = (i * slotWidth) + (slotWidth / 2f)
-            val centerY = toolbarHeight / 2f
+            val centerX = toolbarBarRect.left + (i * slotWidth) + (slotWidth / 2f)
+            val centerY = toolbarBarRect.centerY()
 
-            val slotRect = RectF(i * slotWidth, 0f, (i + 1) * slotWidth, toolbarHeight)
+            val slotRect = RectF(
+                toolbarBarRect.left + (i * slotWidth),
+                barTop,
+                toolbarBarRect.left + ((i + 1) * slotWidth),
+                barBottom
+            )
             toolbarBounds[id] = slotRect
 
-            // Cursor icon (index 2) is highlighted with rounded teal rectangle
+            // Cursor icon (index 3) is actively highlighted with rounded dark teal box
             if (id == "cursor") {
-                val boxWidth = slotWidth * 0.72f
-                val boxHeight = toolbarHeight * 0.74f
+                val boxWidth = slotWidth * 0.76f
+                val boxHeight = (barBottom - barTop) * 0.76f
                 val highlightRect = RectF(
                     centerX - boxWidth / 2f,
                     centerY - boxHeight / 2f,
@@ -207,7 +250,10 @@ class TextEditingView @JvmOverloads constructor(
             }
 
             if (drawable != null) {
-                val size = if (id == "cursor" || id == "hide") (27f * density).toInt() else iconSize
+                val size = when (id) {
+                    "cursor", "hide" -> (25f * density).toInt()
+                    else -> (22f * density).toInt()
+                }
                 val left = (centerX - size / 2f).toInt()
                 val top = (centerY - size / 2f).toInt()
                 drawable.setBounds(left, top, left + size, top + size)
@@ -412,8 +458,10 @@ class TextEditingView @JvmOverloads constructor(
                         when (id) {
                             "hub" -> onOpenHub?.invoke()
                             "emoji" -> onOpenEmoji?.invoke()
+                            "voice" -> onOpenVoice?.invoke()
+                            "cursor" -> onClose?.invoke() // Re-tapping cursor returns to keyboard
                             "clipboard" -> onOpenClipboard?.invoke()
-                            "hide" -> onClose?.invoke()
+                            "hide" -> onHide?.invoke() ?: onClose?.invoke()
                         }
                         return true
                     }
@@ -424,6 +472,8 @@ class TextEditingView @JvmOverloads constructor(
                     if (rect.contains(x, y)) {
                         if (action == Action.CLIPBOARD) {
                             onOpenClipboard?.invoke()
+                        } else if (action == Action.HOME) {
+                            onClose?.invoke() // "الصفحة الرئيسية" returns directly to keyboard
                         } else if (action != Action.DELETE) {
                             onAction?.invoke(action)
                         }
