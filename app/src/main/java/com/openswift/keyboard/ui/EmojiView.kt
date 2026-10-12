@@ -239,14 +239,18 @@ class EmojiView @JvmOverloads constructor(
     private fun drawEmojiGrid(canvas: Canvas, w: Float, top: Float, bottom: Float) {
         emojiCardBounds.clear()
         val availableHeight = (bottom - top).coerceAtLeast(10f)
-        val marginH = 10f * density
-        val gap = 8f * density
-        val columns = 4
-        val rows = 3
+        val marginH = 8f * density
+        val gap = 6f * density
+        val columns = 6
+        val rows = 2
         val cardWidth = (w - (marginH * 2f) - (gap * (columns - 1))) / columns.toFloat()
-        val cardHeight = (availableHeight - (gap * (rows - 1))) / rows.toFloat()
-        val emojiFontSize = minOf(cardHeight * 0.52f, 32f * density)
+        val maxCardHeight = 52f * density
+        val cardHeight = minOf(maxCardHeight, (availableHeight - (gap * (rows - 1))) / rows.toFloat())
+        val emojiFontSize = 22f * density
         emojiTextPaint.textSize = emojiFontSize
+
+        val totalGridHeight = (cardHeight * rows) + (gap * (rows - 1))
+        val startY = top + ((availableHeight - totalGridHeight) / 2f).coerceAtLeast(0f)
 
         shortcutEmojis.forEachIndexed { index, emoji ->
             val col = index % columns
@@ -254,7 +258,7 @@ class EmojiView @JvmOverloads constructor(
             if (row >= rows) return@forEachIndexed
 
             val left = marginH + (col * (cardWidth + gap))
-            val cardTop = top + (row * (cardHeight + gap))
+            val cardTop = startY + (row * (cardHeight + gap))
             val rect = RectF(left, cardTop, left + cardWidth, cardTop + cardHeight)
             emojiCardBounds[emoji] = rect
 
@@ -262,8 +266,9 @@ class EmojiView @JvmOverloads constructor(
             val paint = if (isPressed) cardPressedPaint else cardBgPaint
 
             // Draw rounded card
-            canvas.drawRoundRect(rect, cardCornerRadius, cardCornerRadius, paint)
-            canvas.drawRoundRect(rect, cardCornerRadius, cardCornerRadius, cardBorderPaint)
+            val radius = 8f * density
+            canvas.drawRoundRect(rect, radius, radius, paint)
+            canvas.drawRoundRect(rect, radius, radius, cardBorderPaint)
 
             // Draw emoji glyph centered
             val fontMetrics = emojiTextPaint.fontMetrics
