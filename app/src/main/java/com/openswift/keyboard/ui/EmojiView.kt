@@ -10,11 +10,14 @@ import android.view.MotionEvent
 import android.view.View
 import androidx.appcompat.content.res.AppCompatResources
 import com.openswift.keyboard.R
-import com.openswift.keyboard.data.SecurePreferences
-import com.openswift.keyboard.data.TypedDataStores
 import com.openswift.keyboard.theme.Themes
-import kotlin.math.max
 
+/**
+ * Dedicated Shortcut Emojis panel:
+ * - Features the full top shortcuts toolbar (Hub, Emoji [active], Voice, Cursor, Clipboard, Hide)
+ * - Exclusively presents the shortcut emojis (EmojiCatalog.shortcutValues) in a clean, high-contrast grid
+ * - Bottom action row with [ ABC ] to return to keyboard, Space, and Backspace [ ⌫ ]
+ */
 class EmojiView @JvmOverloads constructor(
     ctx: Context,
     attrs: AttributeSet? = null
@@ -22,62 +25,107 @@ class EmojiView @JvmOverloads constructor(
 
     var onEmojiSelected: ((String) -> Unit)? = null
     var onClose: (() -> Unit)? = null
+    var onOpenHub: (() -> Unit)? = null
+    var onOpenVoice: (() -> Unit)? = null
+    var onOpenTextEditing: (() -> Unit)? = null
+    var onOpenClipboard: (() -> Unit)? = null
+    var onHide: (() -> Unit)? = null
+    var onBackspace: (() -> Unit)? = null
 
-    private val prefs = SecurePreferences.open(ctx, TypedDataStores.EMOJI_PICKER)
     private val theme = Themes.Amoled
     private val density = resources.displayMetrics.density
-    private val categoryBounds = mutableMapOf<String, RectF>()
-    private val quickShortcutBounds = mutableMapOf<String, RectF>()
-    private val emojiBounds = mutableMapOf<String, Rect>()
-    private val keyboardBounds = mutableMapOf<String, RectF>()
-    private val actionBounds = mutableMapOf<String, RectF>()
-    private val recents = loadList("recents").toMutableList()
-    private val favorites = loadList("favorites").toMutableList()
-    private val searchRows = listOf("qwertyuiop", "asdfghjkl", "zxcvbnm")
 
-    private var selectedCategory = EmojiCatalog.SHORTCUTS
-    private var query = ""
-    private var searchActive = false
-    private var scrollOffset = 0f
-    private var categoryScrollOffset = 0f
-    private var maxCategoryScroll = 0f
-    private var lastY = 0f
-    private var lastX = 0f
-    private var isCategoryTouch = false
-    private var downEmoji: String? = null
-    private var downTime = 0L
-    private var moved = false
-
-    private val backgroundPaint = Paint().apply { color = theme.background }
-    private val panelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = theme.keyBackground }
-    private val selectedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = theme.keyAccent }
-    private val mutedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = theme.keyModifierBackground }
-    private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = theme.keyText
-        textAlign = Paint.Align.CENTER
+    // Top toolbar Drawables & bounds
+    private val hubIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_hub_monogram)?.mutate()?.apply {
+        setTint(0xFF8E95A5.toInt())
     }
-    private val subtleTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = theme.suggestionText
-        textAlign = Paint.Align.CENTER
+    private val emojiIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_sentiment_satisfied)?.mutate()?.apply {
+        setTint(0xFFFFFFFF.toInt()) // Highlighted as active
     }
-    private val starIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_star)?.mutate()?.apply {
-        setTint(theme.keyAccent)
+    private val micIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_mic)?.mutate()?.apply {
+        setTint(0xFF8E95A5.toInt())
     }
-    private val closeIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_close)?.mutate()?.apply {
-        setTint(theme.keyText)
+    private val cursorIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_text_cursor)?.mutate()?.apply {
+        setTint(0xFF8E95A5.toInt())
+    }
+    private val clipboardIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_content_paste)?.mutate()?.apply {
+        setTint(0xFF8E95A5.toInt())
+    }
+    private val hideIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_keyboard_arrow_down)?.mutate()?.apply {
+        setTint(0xFF8E95A5.toInt())
     }
     private val backspaceIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_backspace)?.mutate()?.apply {
         setTint(theme.keyText)
     }
-    private val emojiPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val closeIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_close)?.mutate()?.apply {
+        setTint(theme.keyText)
+    }
+    private val starIcon = AppCompatResources.getDrawable(ctx, R.drawable.ic_star)?.mutate()?.apply {
+        setTint(theme.keyAccent)
+    }
+
+    // Paints
+    private val bgPaint = Paint().apply { color = theme.background }
+    private val toolbarBarBgPaint = Paint().apply {
+        color = 0xFF0D1117.toInt()
+        style = Paint.Style.FILL
+    }
+    private val toolbarBarBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF00E5FF.toInt() // Neon cyan border matching keyboard
+        style = Paint.Style.STROKE
+    }
+    private val toolbarDividerPaint = Paint().apply {
+        color = 0x3300E5FF.toInt()
+    }
+    private val activeIconHighlightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF1E3F42.toInt() // Dark teal highlight for active emoji icon
+        style = Paint.Style.FILL
+    }
+    private val cardBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = theme.keyBackground
+        style = Paint.Style.FILL
+    }
+    private val cardPressedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = theme.keyAccent
+        style = Paint.Style.FILL
+    }
+    private val cardBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0x3300E5FF.toInt()
+        style = Paint.Style.STROKE
+        strokeWidth = 1f * density
+    }
+    private val emojiTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textAlign = Paint.Align.CENTER
     }
-    private val shortcutPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val bottomBarTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = theme.keyText
         textAlign = Paint.Align.CENTER
+        isFakeBoldText = true
+        textSize = 15f * density
     }
-    private val starDrawBounds = RectF()
-    private var cachedEntriesKey: String? = null
-    private var cachedEntriesList: List<EmojiEntry> = emptyList()
+    private val bottomBarSubtlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = theme.suggestionText
+        textAlign = Paint.Align.CENTER
+        textSize = 14f * density
+    }
+
+    // Touch hit test regions
+    private val toolbarBounds = mutableMapOf<String, RectF>()
+    private val toolbarBarRect = RectF()
+    private val emojiCardBounds = mutableMapOf<String, RectF>()
+    private val bottomAbcRect = RectF()
+    private val bottomSpaceRect = RectF()
+    private val bottomBackspaceRect = RectF()
+
+    private var pressedKey: String? = null
+
+    // Dimensions
+    private val toolbarHeight = 44f * density
+    private val bottomBarHeight = 46f * density
+    private val cardCornerRadius = 10f * density
+
+    // Shortcut emojis exclusively
+    private val shortcutEmojis = EmojiCatalog.shortcutValues
 
     var explicitHeightPx: Int = 0
         set(value) {
@@ -96,345 +144,241 @@ class EmojiView @JvmOverloads constructor(
     }
 
     override fun onDraw(canvas: Canvas) {
-        canvas.drawColor(theme.background)
-        val categoryHeight = 42f * density
-        val searchHeight = 44f * density
-        val shortcutsHeight = if (!searchActive) 38f * density else 0f
-        val keyboardHeight = if (searchActive) 112f * density else 0f
-        val gridTop = categoryHeight + searchHeight + shortcutsHeight + keyboardHeight
+        val w = width.toFloat()
+        val h = height.toFloat()
 
-        drawCategories(canvas, categoryHeight)
-        drawSearch(canvas, categoryHeight, searchHeight)
-        if (!searchActive) {
-            drawQuickShortcuts(canvas, categoryHeight + searchHeight, shortcutsHeight)
+        // 1. Screen background
+        canvas.drawRect(0f, 0f, w, h, bgPaint)
+
+        // 2. Top Shortcuts Toolbar
+        drawTopToolbar(canvas, w)
+
+        // 3. Bottom Action Row (ABC, Space, Backspace)
+        val bottomY = h - bottomBarHeight
+        drawBottomBar(canvas, w, bottomY, bottomBarHeight)
+
+        // 4. Shortcut Emojis Grid
+        val gridTop = toolbarHeight + (6f * density)
+        val gridBottom = bottomY - (6f * density)
+        drawEmojiGrid(canvas, w, gridTop, gridBottom)
+    }
+
+    private fun drawTopToolbar(canvas: Canvas, w: Float) {
+        toolbarBounds.clear()
+        val barMarginH = 4f * density
+        val barTop = 2f * density
+        val barBottom = toolbarHeight - (2f * density)
+        val barRadius = 12f * density
+        toolbarBarRect.set(barMarginH, barTop, w - barMarginH, barBottom)
+
+        // Toolbar background
+        canvas.drawRoundRect(toolbarBarRect, barRadius, barRadius, toolbarBarBgPaint)
+
+        // Neon cyan border
+        toolbarBarBorderPaint.strokeWidth = 2.2f * density
+        canvas.drawRoundRect(toolbarBarRect, barRadius, barRadius, toolbarBarBorderPaint)
+
+        val icons = listOf(
+            "hub" to hubIcon,
+            "emoji" to emojiIcon,
+            "voice" to micIcon,
+            "cursor" to cursorIcon,
+            "clipboard" to clipboardIcon,
+            "hide" to hideIcon
+        )
+        val iconCount = icons.size
+        val slotWidth = toolbarBarRect.width() / iconCount.toFloat()
+
+        // Divider lines between slots
+        toolbarDividerPaint.strokeWidth = 1.5f * density
+        val dividerHalfH = 10.5f * density
+        val dividerCenterY = toolbarBarRect.centerY()
+        for (i in 1 until iconCount) {
+            val divX = toolbarBarRect.left + (i * slotWidth)
+            canvas.drawLine(divX, dividerCenterY - dividerHalfH, divX, dividerCenterY + dividerHalfH, toolbarDividerPaint)
         }
-        if (searchActive) {
-            drawSearchKeyboard(canvas, categoryHeight + searchHeight)
+
+        icons.forEachIndexed { index, (action, drawable) ->
+            val centerX = toolbarBarRect.left + (index * slotWidth) + (slotWidth / 2f)
+            val centerY = toolbarBarRect.centerY()
+
+            val hitRect = RectF(
+                toolbarBarRect.left + (index * slotWidth),
+                barTop,
+                toolbarBarRect.left + ((index + 1) * slotWidth),
+                barBottom
+            )
+            toolbarBounds[action] = hitRect
+
+            // Emoji icon (index 1) is highlighted with dark teal background as active tool
+            if (action == "emoji") {
+                val boxWidth = slotWidth * 0.76f
+                val boxHeight = (barBottom - barTop) * 0.76f
+                val highlightRect = RectF(
+                    centerX - boxWidth / 2f,
+                    centerY - boxHeight / 2f,
+                    centerX + boxWidth / 2f,
+                    centerY + boxHeight / 2f
+                )
+                canvas.drawRoundRect(highlightRect, 8f * density, 8f * density, activeIconHighlightPaint)
+            }
+
+            if (drawable != null) {
+                val iconSize = when (action) {
+                    "cursor", "hide" -> (25f * density).toInt()
+                    else -> (22f * density).toInt()
+                }
+                val iconLeft = (centerX - (iconSize / 2f)).toInt()
+                val iconTop = (centerY - (iconSize / 2f)).toInt()
+                drawable.setBounds(iconLeft, iconTop, iconLeft + iconSize, iconTop + iconSize)
+                drawable.draw(canvas)
+            }
         }
-        drawEmojiGrid(canvas, gridTop)
+    }
+
+    private fun drawEmojiGrid(canvas: Canvas, w: Float, top: Float, bottom: Float) {
+        emojiCardBounds.clear()
+        val availableHeight = (bottom - top).coerceAtLeast(10f)
+        val marginH = 10f * density
+        val gap = 8f * density
+        val columns = 4
+        val rows = 3
+        val cardWidth = (w - (marginH * 2f) - (gap * (columns - 1))) / columns.toFloat()
+        val cardHeight = (availableHeight - (gap * (rows - 1))) / rows.toFloat()
+        val emojiFontSize = minOf(cardHeight * 0.52f, 32f * density)
+        emojiTextPaint.textSize = emojiFontSize
+
+        shortcutEmojis.forEachIndexed { index, emoji ->
+            val col = index % columns
+            val row = index / columns
+            if (row >= rows) return@forEachIndexed
+
+            val left = marginH + (col * (cardWidth + gap))
+            val cardTop = top + (row * (cardHeight + gap))
+            val rect = RectF(left, cardTop, left + cardWidth, cardTop + cardHeight)
+            emojiCardBounds[emoji] = rect
+
+            val isPressed = pressedKey == emoji
+            val paint = if (isPressed) cardPressedPaint else cardBgPaint
+
+            // Draw rounded card
+            canvas.drawRoundRect(rect, cardCornerRadius, cardCornerRadius, paint)
+            canvas.drawRoundRect(rect, cardCornerRadius, cardCornerRadius, cardBorderPaint)
+
+            // Draw emoji glyph centered
+            val fontMetrics = emojiTextPaint.fontMetrics
+            val baselineY = rect.centerY() - ((fontMetrics.ascent + fontMetrics.descent) / 2f)
+            canvas.drawText(emoji, rect.centerX(), baselineY, emojiTextPaint)
+        }
+    }
+
+    private fun drawBottomBar(canvas: Canvas, w: Float, top: Float, height: Float) {
+        val marginH = 10f * density
+        val btnHeight = height - (8f * density)
+        val btnTop = top + (4f * density)
+        val btnBottom = btnTop + btnHeight
+        val radius = 8f * density
+
+        // 1. ABC Button on left
+        val abcWidth = 72f * density
+        bottomAbcRect.set(marginH, btnTop, marginH + abcWidth, btnBottom)
+        val isAbcPressed = pressedKey == "ABC"
+        canvas.drawRoundRect(bottomAbcRect, radius, radius, if (isAbcPressed) cardPressedPaint else cardBgPaint)
+        canvas.drawRoundRect(bottomAbcRect, radius, radius, cardBorderPaint)
+        val abcFontMetrics = bottomBarTextPaint.fontMetrics
+        val abcTextY = bottomAbcRect.centerY() - ((abcFontMetrics.ascent + abcFontMetrics.descent) / 2f)
+        canvas.drawText("ABC", bottomAbcRect.centerX(), abcTextY, bottomBarTextPaint)
+
+        // 2. Backspace Button on right
+        val backspaceWidth = 62f * density
+        val backspaceLeft = w - marginH - backspaceWidth
+        bottomBackspaceRect.set(backspaceLeft, btnTop, w - marginH, btnBottom)
+        val isBkPressed = pressedKey == "BK"
+        canvas.drawRoundRect(bottomBackspaceRect, radius, radius, if (isBkPressed) cardPressedPaint else cardBgPaint)
+        canvas.drawRoundRect(bottomBackspaceRect, radius, radius, cardBorderPaint)
+        if (backspaceIcon != null) {
+            val iconSize = (22f * density).toInt()
+            val left = (bottomBackspaceRect.centerX() - iconSize / 2f).toInt()
+            val topIcon = (bottomBackspaceRect.centerY() - iconSize / 2f).toInt()
+            backspaceIcon.setBounds(left, topIcon, left + iconSize, topIcon + iconSize)
+            backspaceIcon.draw(canvas)
+        }
+
+        // 3. Space button in center
+        val spaceLeft = bottomAbcRect.right + (8f * density)
+        val spaceRight = bottomBackspaceRect.left - (8f * density)
+        bottomSpaceRect.set(spaceLeft, btnTop, spaceRight, btnBottom)
+        val isSpacePressed = pressedKey == "SPACE"
+        canvas.drawRoundRect(bottomSpaceRect, radius, radius, if (isSpacePressed) cardPressedPaint else cardBgPaint)
+        canvas.drawRoundRect(bottomSpaceRect, radius, radius, cardBorderPaint)
+        val spaceFontMetrics = bottomBarSubtlePaint.fontMetrics
+        val spaceTextY = bottomSpaceRect.centerY() - ((spaceFontMetrics.ascent + spaceFontMetrics.descent) / 2f)
+        canvas.drawText("مسافة", bottomSpaceRect.centerX(), spaceTextY, bottomBarSubtlePaint)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        val x = event.x
+        val y = event.y
+
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
-                lastY = event.y
-                lastX = event.x
-                moved = false
-                isCategoryTouch = event.y <= (42f * density)
-                downEmoji = findEmoji(event.x, event.y)
-                downTime = System.currentTimeMillis()
-                return true
-            }
-            MotionEvent.ACTION_MOVE -> {
-                val dy = event.y - lastY
-                val dx = event.x - lastX
-                if (isCategoryTouch) {
-                    if (kotlin.math.abs(dx) > 4f * density) {
-                        moved = true
-                        categoryScrollOffset = (categoryScrollOffset - dx).coerceIn(0f, maxCategoryScroll)
-                        lastX = event.x
-                        invalidate()
-                    }
-                } else if (kotlin.math.abs(dy) > 4f * density) {
-                    moved = true
-                    scrollOffset = (scrollOffset - dy).coerceIn(0f, maxScroll())
-                    lastY = event.y
-                    invalidate()
-                }
+                pressedKey = findKeyAt(x, y)
+                invalidate()
                 return true
             }
             MotionEvent.ACTION_UP -> {
-                if (!moved && handleTap(event.x, event.y)) return true
-                downEmoji = null
-                isCategoryTouch = false
+                val target = pressedKey
+                pressedKey = null
+                invalidate()
+
+                if (target != null && target == findKeyAt(x, y)) {
+                    handleKeyAction(target)
+                }
+                return true
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                pressedKey = null
+                invalidate()
                 return true
             }
         }
         return super.onTouchEvent(event)
     }
 
-    private fun categoryLabel(category: String): String = when (category) {
-        EmojiCatalog.RECENTS -> "الأخيرة"
-        EmojiCatalog.SHORTCUTS -> "اختصارات"
-        EmojiCatalog.FAVORITES -> "المفضلة"
-        "Smile" -> "وجوه"
-        "Hand" -> "أيدي"
-        "Heart" -> "قلوب"
-        "Food" -> "طعام"
-        "Nature" -> "طبيعة"
-        "Travel" -> "سفر"
-        "Object" -> "أشياء"
-        "Symbol" -> "رموز"
-        else -> category
-    }
-
-    private fun drawCategories(canvas: Canvas, height: Float) {
-        categoryBounds.clear()
-        textPaint.textSize = 11f * density
-        var currentX = 4f * density
-        val tabs = EmojiCatalog.categories
-        val totalWidth = tabs.sumOf { cat ->
-            val label = categoryLabel(cat)
-            val w = textPaint.measureText(label) + (20f * density)
-            maxOf(54f * density, w).toDouble()
-        }.toFloat() + (8f * density)
-        maxCategoryScroll = maxOf(0f, totalWidth - width)
-
-        canvas.save()
-        canvas.clipRect(0f, 0f, width.toFloat(), height)
-
-        tabs.forEach { category ->
-            val label = categoryLabel(category)
-            val labelWidth = textPaint.measureText(label) + (20f * density)
-            val tabWidth = maxOf(54f * density, labelWidth)
-            val left = currentX - categoryScrollOffset
-            val rect = RectF(left + 2f, 4f, left + tabWidth - 2f, height - 4f)
-            categoryBounds[category] = rect
-            val selected = category == selectedCategory && query.isBlank()
-            canvas.drawRoundRect(rect, 8f * density, 8f * density, if (selected) selectedPaint else mutedPaint)
-            canvas.drawText(label, rect.centerX(), rect.centerY() + 4f * density, textPaint)
-            currentX += tabWidth
+    private fun findKeyAt(x: Float, y: Float): String? {
+        // 1. Toolbar items
+        for ((action, rect) in toolbarBounds) {
+            if (rect.contains(x, y)) return "TB:$action"
         }
-        canvas.restore()
-    }
+        // 2. Bottom items
+        if (bottomAbcRect.contains(x, y)) return "ABC"
+        if (bottomBackspaceRect.contains(x, y)) return "BK"
+        if (bottomSpaceRect.contains(x, y)) return "SPACE"
 
-    private fun drawQuickShortcuts(canvas: Canvas, top: Float, height: Float) {
-        quickShortcutBounds.clear()
-        val margin = 6f * density
-        val pillRect = RectF(margin, top + 2f * density, width - margin, top + height - 2f * density)
-        canvas.drawRoundRect(pillRect, 8f * density, 8f * density, panelPaint)
-
-        val items = EmojiCatalog.shortcutValues
-        val count = items.size
-        val itemWidth = pillRect.width() / count
-        val emojiSize = minOf(itemWidth * 0.76f, 22f * density)
-        val textPaintY = pillRect.centerY() + (emojiSize * 0.36f)
-
-        shortcutPaint.textSize = emojiSize
-
-        items.forEachIndexed { index, emoji ->
-            val left = pillRect.left + (index * itemWidth)
-            val rect = RectF(left, pillRect.top, left + itemWidth, pillRect.bottom)
-            quickShortcutBounds[emoji] = rect
-            canvas.drawText(emoji, rect.centerX(), textPaintY, shortcutPaint)
+        // 3. Emojis
+        for ((emoji, rect) in emojiCardBounds) {
+            if (rect.contains(x, y)) return emoji
         }
+        return null
     }
 
-    private fun drawSearch(canvas: Canvas, top: Float, height: Float) {
-        actionBounds.clear()
-        val margin = 8f * density
-        val field = RectF(margin, top + 5f * density, width - (92f * density), top + height - 5f * density)
-        val backspace = RectF(width - (84f * density), field.top, width - (48f * density), field.bottom)
-        val clear = RectF(width - (42f * density), field.top, width - margin, field.bottom)
-        actionBounds["search"] = field
-        actionBounds["backspace"] = backspace
-        actionBounds["clear"] = clear
-
-        canvas.drawRoundRect(field, 8f * density, 8f * density, panelPaint)
-        canvas.drawRoundRect(backspace, 8f * density, 8f * density, mutedPaint)
-        canvas.drawRoundRect(clear, 8f * density, 8f * density, mutedPaint)
-
-        subtleTextPaint.textSize = 14f * density
-        val label = if (query.isBlank()) "بحث عن رمز تعبيري" else query
-        canvas.drawText(label, field.centerX(), field.centerY() + 5f * density, subtleTextPaint)
-        drawIcon(canvas, backspaceIcon, backspace, 18f)
-        drawIcon(canvas, closeIcon, clear, 18f)
-    }
-
-    private fun drawSearchKeyboard(canvas: Canvas, top: Float) {
-        keyboardBounds.clear()
-        textPaint.textSize = 15f * density
-        var y = top + 6f * density
-        searchRows.forEach { row ->
-            val keyWidth = width.toFloat() / row.length
-            row.forEachIndexed { index, char ->
-                val left = index * keyWidth
-                val rect = RectF(left + 2f, y, left + keyWidth - 2f, y + 30f * density)
-                keyboardBounds[char.toString()] = rect
-                canvas.drawRoundRect(rect, 6f * density, 6f * density, panelPaint)
-                canvas.drawText(char.toString(), rect.centerX(), rect.centerY() + 5f * density, textPaint)
+    private fun handleKeyAction(key: String) {
+        when {
+            key.startsWith("TB:") -> {
+                val action = key.removePrefix("TB:")
+                when (action) {
+                    "hub" -> onOpenHub?.invoke() ?: onClose?.invoke()
+                    "emoji" -> onClose?.invoke() // Re-tapping emoji returns to keyboard
+                    "voice" -> onOpenVoice?.invoke() ?: onClose?.invoke()
+                    "cursor" -> onOpenTextEditing?.invoke() ?: onClose?.invoke()
+                    "clipboard" -> onOpenClipboard?.invoke() ?: onClose?.invoke()
+                    "hide" -> onHide?.invoke()
+                }
             }
-            y += 34f * density
+            key == "ABC" -> onClose?.invoke()
+            key == "BK" -> onBackspace?.invoke()
+            key == "SPACE" -> onEmojiSelected?.invoke(" ")
+            else -> onEmojiSelected?.invoke(key)
         }
-    }
-
-    private fun drawEmojiGrid(canvas: Canvas, top: Float) {
-        emojiBounds.clear()
-        val results = currentEntries()
-        val columns = 8
-        val cell = width.toFloat() / columns
-        val visibleBottom = height.toFloat()
-        emojiPaint.textSize = 30f * density
-        textPaint.textSize = 13f * density
-
-        if (results.isEmpty()) {
-            canvas.drawText("لا توجد رموز", width / 2f, top + 44f * density, subtleTextPaint)
-            return
-        }
-
-        results.forEachIndexed { index, entry ->
-            val row = index / columns
-            val col = index % columns
-            val x = col * cell
-            val y = top + row * cell - scrollOffset
-            if (y > visibleBottom || y + cell < top) return@forEachIndexed
-            val rect = Rect(x.toInt(), y.toInt(), (x + cell).toInt(), (y + cell).toInt())
-            emojiBounds[entry.value] = rect
-            canvas.drawText(entry.value, x + cell / 2, y + cell * 0.68f, emojiPaint)
-            if (favorites.contains(entry.value)) {
-                starDrawBounds.set(
-                    x + cell - 22f * density,
-                    y + 4f * density,
-                    x + cell - 6f * density,
-                    y + 20f * density,
-                )
-                drawIcon(canvas, starIcon, starDrawBounds, 16f)
-            }
-        }
-    }
-
-    private fun drawIcon(canvas: Canvas, icon: android.graphics.drawable.Drawable?, bounds: RectF, sizeDp: Float) {
-        val size = (sizeDp * density).toInt()
-        val centerX = bounds.centerX().toInt()
-        val centerY = bounds.centerY().toInt()
-        icon?.setBounds(
-            centerX - size / 2,
-            centerY - size / 2,
-            centerX + size / 2,
-            centerY + size / 2,
-        )
-        icon?.draw(canvas)
-    }
-
-    private fun handleTap(x: Float, y: Float): Boolean {
-        categoryBounds.entries.firstOrNull { it.value.contains(x, y) }?.let {
-            selectedCategory = it.key
-            query = ""
-            searchActive = false
-            scrollOffset = 0f
-            // Scroll tab into view if near edges
-            val rect = it.value
-            val pad = 16f * density
-            if (rect.left < pad) {
-                categoryScrollOffset = (categoryScrollOffset - (pad - rect.left)).coerceIn(0f, maxCategoryScroll)
-            } else if (rect.right > width - pad) {
-                categoryScrollOffset = (categoryScrollOffset + (rect.right - (width - pad))).coerceIn(0f, maxCategoryScroll)
-            }
-            invalidate()
-            return true
-        }
-        quickShortcutBounds.entries.firstOrNull { it.value.contains(x, y) }?.let {
-            val emoji = it.key
-            addRecent(emoji)
-            onEmojiSelected?.invoke(emoji)
-            invalidate()
-            return true
-        }
-        actionBounds["search"]?.takeIf { it.contains(x, y) }?.let {
-            searchActive = true
-            invalidate()
-            return true
-        }
-        actionBounds["backspace"]?.takeIf { it.contains(x, y) }?.let {
-            if (query.isNotEmpty()) query = query.dropLast(1)
-            searchActive = true
-            scrollOffset = 0f
-            invalidate()
-            return true
-        }
-        actionBounds["clear"]?.takeIf { it.contains(x, y) }?.let {
-            if (query.isBlank() && !searchActive) {
-                onClose?.invoke()
-                return true
-            }
-            query = ""
-            searchActive = false
-            scrollOffset = 0f
-            invalidate()
-            return true
-        }
-        keyboardBounds.entries.firstOrNull { it.value.contains(x, y) }?.let {
-            query += it.key
-            selectedCategory = EmojiCatalog.RECENTS
-            scrollOffset = 0f
-            invalidate()
-            return true
-        }
-        val emoji = findEmoji(x, y) ?: return false
-        if (emoji == downEmoji && System.currentTimeMillis() - downTime >= LONG_PRESS_MS) {
-            toggleFavorite(emoji)
-        } else {
-            addRecent(emoji)
-            onEmojiSelected?.invoke(emoji)
-        }
-        downEmoji = null
-        invalidate()
-        return true
-    }
-
-    private fun findEmoji(x: Float, y: Float): String? {
-        return emojiBounds.entries.firstOrNull { it.value.contains(x.toInt(), y.toInt()) }?.key
-    }
-
-    private fun currentEntries(): List<EmojiEntry> {
-        val key = if (query.isNotBlank()) "q:$query" else "c:$selectedCategory:${recents.size}:${favorites.size}"
-        if (cachedEntriesKey == key) return cachedEntriesList
-        val computed = if (query.isNotBlank()) {
-            EmojiCatalog.search(query)
-        } else {
-            when (selectedCategory) {
-                EmojiCatalog.SHORTCUTS -> EmojiCatalog.shortcuts
-                EmojiCatalog.RECENTS -> recents.mapNotNull { EmojiCatalog.byValue[it] }
-                EmojiCatalog.FAVORITES -> favorites.mapNotNull { EmojiCatalog.byValue[it] }
-                else -> EmojiCatalog.entries.filter { it.category == selectedCategory }
-            }
-        }
-        cachedEntriesKey = key
-        cachedEntriesList = computed
-        return computed
-    }
-
-    private fun maxScroll(): Float {
-        val columns = 8
-        val rows = (currentEntries().size + columns - 1) / columns
-        val keyboardHeight = if (searchActive) 112f * density else 0f
-        val shortcutsHeight = if (!searchActive) 38f * density else 0f
-        val gridTop = 42f * density + 44f * density + shortcutsHeight + keyboardHeight
-        val contentHeight = rows * (width.toFloat() / columns)
-        return max(0f, contentHeight - (height - gridTop))
-    }
-
-    private fun addRecent(emoji: String) {
-        recents.remove(emoji)
-        recents.add(0, emoji)
-        while (recents.size > MAX_STORED) recents.removeAt(recents.lastIndex)
-        cachedEntriesKey = null
-        saveList("recents", recents)
-    }
-
-    private fun toggleFavorite(emoji: String) {
-        if (favorites.remove(emoji)) {
-            cachedEntriesKey = null
-            saveList("favorites", favorites)
-            return
-        }
-        favorites.add(0, emoji)
-        while (favorites.size > MAX_STORED) favorites.removeAt(favorites.lastIndex)
-        cachedEntriesKey = null
-        saveList("favorites", favorites)
-    }
-
-    private fun loadList(key: String): List<String> {
-        return prefs.getString(key, "").orEmpty().split(SEPARATOR).filter { it.isNotBlank() }
-    }
-
-    private fun saveList(key: String, values: List<String>) {
-        prefs.edit().putString(key, values.joinToString(SEPARATOR)).apply()
-    }
-
-    companion object {
-        private const val LONG_PRESS_MS = 450L
-        private const val MAX_STORED = 24
-        private const val SEPARATOR = "\u001F"
     }
 }

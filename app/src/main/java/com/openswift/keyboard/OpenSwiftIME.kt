@@ -190,12 +190,28 @@ class OpenSwiftIME : InputMethodService() {
             emojiView.onEmojiSelected = { emoji ->
                 currentInputConnection?.commitText(emoji, 1)
                 clearInputBuffers()
-                emojiMode = false
-                showKeyboardView()
             }
             emojiView.onClose = {
                 emojiMode = false
                 showKeyboardView()
+            }
+            emojiView.onOpenHub = { showToolsHubView() }
+            emojiView.onOpenVoice = {
+                showKeyboardView()
+                toggleVoiceTyping()
+            }
+            emojiView.onOpenTextEditing = { showTextEditingView() }
+            emojiView.onOpenClipboard = { showClipboardView() }
+            emojiView.onHide = { requestHideSelf(0) }
+            emojiView.onBackspace = {
+                val ic = currentInputConnection
+                if (ic != null) {
+                    val deleted = ic.deleteSurroundingText(1, 0)
+                    if (!deleted) {
+                        ic.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DEL))
+                        ic.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_DEL))
+                    }
+                }
             }
             if (::keyboardView.isInitialized) {
                 emojiView.explicitHeightPx = keyboardView.getEffectiveHeightPx()
